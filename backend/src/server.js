@@ -21,6 +21,11 @@ const logger = require('./utils/logger');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// On hosts like Render/Railway the app runs behind a TLS proxy. Trusting the
+// proxy makes req.protocol = "https" and uses the real host, which is required
+// for Twilio's webhook signature validation to reconstruct the correct URL.
+app.set('trust proxy', true);
+
 // ── Middleware ────────────────────────────────────────────────────
 // Allow the Next.js dashboard (different origin) to call our API.
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
