@@ -1,0 +1,64 @@
+# ────────────────────────────────────────────────────────────────
+# Render Blueprint — deploys BOTH services from this one repo.
+#
+# In Render: New → Blueprint → connect this repo → Apply.
+# Render reads this file and creates two web services:
+#   1. whatsapp-order-backend   (Express API + Twilio webhook)
+#   2. whatsapp-order-dashboard (Next.js dashboard)
+#
+# The dashboard's NEXT_PUBLIC_API_URL is wired automatically to the backend's
+# hostname via `fromService`, so you don't copy/paste URLs. (The frontend
+# prepends https:// — see src/services/api.ts.)
+#
+# Values marked `sync: false` are SECRETS — Render will prompt you to enter
+# them when you apply the blueprint. They are NOT stored in git.
+# ────────────────────────────────────────────────────────────────
+services:
+  # ── Backend: Express + Twilio + OpenAI + MongoDB ──────────────────
+  - type: web
+    name: whatsapp-order-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 22.11.0
+      - key: MONGODB_URI
+        sync: false # paste your MongoDB Atlas connection string
+      - key: OPENAI_API_KEY
+        sync: false # paste your OpenAI key
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_ACCOUNT_SID_AC
+        sync: false # your AC... Account SID (needed when using an SK API key)
+      - key: TWILIO_WHATSAPP_FROM
+        value: whatsapp:+14155238886
+      - key: VALIDATE_TWILIO_SIGNATURE
+        value: "true"
+      - key: CORS_ORIGIN
+        value: "*"
+
+  # ── Frontend: Next.js dashboard ──────────────────────────────────
+  - type: web
+    name: whatsapp-order-dashboard
+    runtime: node
+    rootDir: frontend
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 22.11.0
+      # Auto-filled with the backend service's hostname at build time.
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: whatsapp-order-backend
+          property: host

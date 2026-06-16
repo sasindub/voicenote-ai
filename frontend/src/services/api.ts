@@ -6,8 +6,12 @@
 
 import type { Order, Stats, OrderStatus, ReorderCustomer } from "@/types/order";
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+// On Render, the backend's URL is injected as just a hostname (no scheme), so
+// we prepend https:// when needed. Locally it's the full http://localhost:3000.
+const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+const BASE_URL = /^https?:\/\//.test(RAW_API_URL)
+  ? RAW_API_URL
+  : `https://${RAW_API_URL}`;
 
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, { cache: "no-store" });
