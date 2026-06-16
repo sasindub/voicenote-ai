@@ -15,11 +15,13 @@ const ORDER_STATUS = {
 };
 
 // Each chat message stored inside an order.
-// sender: who sent it — "customer" or "bot".
+// sender: who sent it —
+//   "customer" = the buyer, "bot" = the AI auto-reply,
+//   "agent"    = a manual message the seller typed from the dashboard.
 // messageType: "text" or "voice" (voice notes are transcribed to text first).
 const messageSchema = new mongoose.Schema(
   {
-    sender: { type: String, enum: ['customer', 'bot'], required: true },
+    sender: { type: String, enum: ['customer', 'bot', 'agent'], required: true },
     messageType: { type: String, enum: ['text', 'voice'], default: 'text' },
     message: { type: String, default: '' },
     createdAt: { type: Date, default: Date.now },
@@ -53,6 +55,11 @@ const orderSchema = new mongoose.Schema(
 
     // AI-generated plain-text summary shown in the dashboard.
     summary: { type: String, default: '' },
+
+    // Per-customer auto-reply switch. When false, the bot stops replying to
+    // this number and the seller chats manually (the AI still updates order
+    // details silently). Kept in sync across all orders for the same number.
+    autoReplyEnabled: { type: Boolean, default: true },
 
     // Full conversation history.
     messages: { type: [messageSchema], default: [] },

@@ -84,14 +84,21 @@ async function processInBackground({ from, body, numMedia, mediaUrl, mediaType }
     }
 
     // Run the ordering brain → get the reply to send back.
-    const { reply, order } = await processIncomingMessage({
+    const { reply, order, autoReplyEnabled } = await processIncomingMessage({
       phoneNumber: from,
       text,
       messageType,
     });
 
-    logger.info(`Order ${order._id} status=${order.status}`);
-    await safeSend(from, reply);
+    logger.info(`Order ${order._id} status=${order.status} autoReply=${autoReplyEnabled}`);
+
+    // In manual mode (auto-reply off) reply is null — don't send anything; the
+    // seller will respond from the dashboard.
+    if (reply) {
+      await safeSend(from, reply);
+    } else {
+      logger.info('Auto-reply off for this number → no automatic reply sent.');
+    }
   } catch (err) {
     logger.error('Processing failed:', err?.message || err);
     if (err?.response?.data) logger.error('API detail:', err.response.data);

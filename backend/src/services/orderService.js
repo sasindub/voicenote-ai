@@ -46,8 +46,14 @@ async function findOrCreateActiveOrder(phoneNumber) {
     return latest;
   }
 
-  // No usable order → create a fresh inquiry.
-  return Order.create({ phoneNumber, status: ORDER_STATUS.INQUIRY });
+  // No usable order → create a fresh inquiry. New orders inherit this
+  // number's current auto-reply setting (so manual mode persists across orders).
+  const inheritedAutoReply = latest ? latest.autoReplyEnabled !== false : true;
+  return Order.create({
+    phoneNumber,
+    status: ORDER_STATUS.INQUIRY,
+    autoReplyEnabled: inheritedAutoReply,
+  });
 }
 
 /**
@@ -62,6 +68,9 @@ async function findOrCreateActiveOrder(phoneNumber) {
  */
 async function processIncomingMessage({ phoneNumber, text, messageType }) {
   let order = await findOrCreateActiveOrder(phoneNumber);
+
+  // Is auto-reply on for this number? (Default true.)
+  const autoReply = order.autoReplyEnabled !== false;
 
   // If the most recent order was CONFIRMED and the customer is NOT cancelling,
   // we want a brand-new inquiry instead of mutating the confirmed one. We peek
@@ -86,14 +95,15 @@ async function processIncomingMessage({ phoneNumber, text, messageType }) {
   // If the last order was already CONFIRMED and the customer is clearly placing
   // a NEW order (not cancelling), start a fresh inquiry so we don't overwrite
   // the confirmed one.
-  if (wasRecentConfirmed && ai.intent !== 'CANCEL') {
+  if (autoReply && wasRecentConfirmed && ai.intent !== 'CANCEL') {
     logger.info('Most recent order was CONFIRMED and customer is ordering again → new inquiry.');
-    order = await Order.create({ phoneNumber, status: ORDER_STATUS.INQUIRY });
+    order = await Order.create({ phoneNumber, status: ORDER_STATUS.INQUIRY, autoReplyEnabled: true });
     order.messages.push({ sender: 'customer', messageType: messageType || 'text', message: text });
   }
 
   // Merge extracted fields into the order (only overwrite with non-empty values
-  // so we never wipe a known value with a blank).
+  // so we never wipe a known value with a blank). This happens in BOTH modes so
+  // the dashboard always reflects the latest details ("silent assist").
   for (const key of FIELD_KEYS) {
     const val = ai.fields[key];
     if (val && val.trim() !== '') order[key] = val.trim();
@@ -102,7 +112,16 @@ async function processIncomingMessage({ phoneNumber, text, messageType }) {
   // Always refresh the dashboard summary.
   if (ai.summary) order.summary = ai.summary;
 
-  // ── Authoritative status decision (business rules live here) ──────
+  // ── MANUAL MODE (auto-reply OFF): silent assist ───────────────────
+  // We've already extracted fields + summary above. Do NOT change status and
+  // do NOT send a reply — the seller handles the conversation manually.
+  if (!autoReply) {
+    await order.save();
+    logger.info('Auto-reply OFF → silent assist (no reply sent, status unchanged).');
+    return { reply: null, autoReplyEnabled: false, order: order.toObject() };
+  }
+
+  // ── AUTO MODE: authoritative status decision + reply ──────────────
   const stillMissing = ai.missingFields; // recomputed in code by the extractor
   let reply = ai.reply;
 
@@ -125,7 +144,7 @@ async function processIncomingMessage({ phoneNumber, text, messageType }) {
   order.messages.push({ sender: 'bot', messageType: 'text', message: reply });
   await order.save();
 
-  return { reply, order: order.toObject() };
+  return { reply, autoReplyEnabled: true, order: order.toObject() };
 }
 
 /** Pull just the order-detail fields off a document. */

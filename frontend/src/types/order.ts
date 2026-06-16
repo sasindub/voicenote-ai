@@ -3,7 +3,7 @@
 export type OrderStatus = "INQUIRY" | "CONFIRMED" | "CANCELLED";
 
 export interface Message {
-  sender: "customer" | "bot";
+  sender: "customer" | "bot" | "agent";
   messageType: "text" | "voice";
   message: string;
   createdAt: string;
@@ -21,6 +21,7 @@ export interface Order {
   quantity: string;
   status: OrderStatus;
   summary: string;
+  autoReplyEnabled: boolean;
   messages: Message[];
   createdAt: string;
   updatedAt: string;

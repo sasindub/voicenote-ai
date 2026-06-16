@@ -19,4 +19,9 @@ router.get('/confirmed', ctrl.getConfirmed);
 router.get('/cancelled', ctrl.getCancelled);
 router.get('/:id', ctrl.getOrderById);
 
+// Manual seller controls
+router.post('/:id/message', ctrl.sendManualMessage);
+router.post('/:id/status', ctrl.updateStatus);
+router.post('/:id/auto-reply', ctrl.setAutoReply);
+
 module.exports = router;
