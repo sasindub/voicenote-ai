@@ -7,12 +7,19 @@
 
 const mongoose = require('mongoose');
 
-// The three (and only three) order statuses from the PRD.
+// Order lifecycle statuses.
+//   INQUIRY → CONFIRMED → DELIVERED → COMPLETED   (and CANCELLED at any point)
+// COMPLETED and CANCELLED are "closed" — a new message starts a fresh order.
 const ORDER_STATUS = {
   INQUIRY: 'INQUIRY',
   CONFIRMED: 'CONFIRMED',
+  DELIVERED: 'DELIVERED',
+  COMPLETED: 'COMPLETED',
   CANCELLED: 'CANCELLED',
 };
+
+// Statuses that mean the conversation is finished (start a new order next time).
+const CLOSED_STATUSES = [ORDER_STATUS.COMPLETED, ORDER_STATUS.CANCELLED];
 
 // Each chat message stored inside an order.
 // sender: who sent it —
@@ -61,6 +68,15 @@ const orderSchema = new mongoose.Schema(
     // details silently). Kept in sync across all orders for the same number.
     autoReplyEnabled: { type: Boolean, default: true },
 
+    // Number of customer messages the seller hasn't viewed yet. Drives the red
+    // "new activity" label in the dashboard. Reset to 0 when the seller opens
+    // the order; incremented on each new incoming customer message.
+    unreadCount: { type: Number, default: 0 },
+
+    // True if this customer had a COMPLETED order before this one was created.
+    // Drives the "returning / ordered before" label.
+    isReturningCustomer: { type: Boolean, default: false },
+
     // Full conversation history.
     messages: { type: [messageSchema], default: [] },
   },
@@ -72,4 +88,4 @@ const orderSchema = new mongoose.Schema(
 
 const Order = mongoose.model('Order', orderSchema);
 
-module.exports = { Order, ORDER_STATUS };
+module.exports = { Order, ORDER_STATUS, CLOSED_STATUSES };

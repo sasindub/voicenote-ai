@@ -16,6 +16,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { OrderDetailDialog } from "@/components/OrderDetailDialog";
+import { Badge } from "@/components/ui/badge";
 import type { Order } from "@/types/order";
 
 export type Column = "customer" | "phone" | "summary" | "product" | "address" | "date";
@@ -39,6 +40,28 @@ function formatDate(iso: string) {
   } catch {
     return iso;
   }
+}
+
+// The customer cell is special — it shows the name plus an unread dot and a
+// "Returning" badge — so it returns JSX. Everything else returns a string.
+function customerCell(order: Order) {
+  const unread = (order.unreadCount || 0) > 0;
+  return (
+    <div className="flex items-center gap-2">
+      {unread && (
+        <span
+          title="New customer messages"
+          className="inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-red-500"
+        />
+      )}
+      <span className="font-medium">{order.customerName?.trim() || "—"}</span>
+      {order.isReturningCustomer && (
+        <Badge variant="returning" className="ml-1">
+          Returning
+        </Badge>
+      )}
+    </div>
+  );
 }
 
 function cellValue(order: Order, col: Column): string {
@@ -116,7 +139,7 @@ export function OrdersTable({
                     key={c}
                     className={c === "summary" || c === "address" ? "max-w-xs truncate" : ""}
                   >
-                    {cellValue(o, c)}
+                    {c === "customer" ? customerCell(o) : cellValue(o, c)}
                   </TableCell>
                 ))}
               </TableRow>

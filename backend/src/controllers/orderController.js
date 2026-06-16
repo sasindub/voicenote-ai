@@ -6,6 +6,7 @@
 
 const { Order, ORDER_STATUS } = require('../models/Order');
 const { sendWhatsAppMessage } = require('../whatsapp/sendMessage');
+const { composeStatusMessage } = require('../ai/statusMessage');
 const logger = require('../utils/logger');
 
 // Newest first — the dashboard wants the latest activity on top.
@@ -51,12 +52,67 @@ async function getOrderById(req, res, next) {
 /** GET /api/orders/stats — counts for the dashboard top cards. */
 async function getStats(req, res, next) {
   try {
-    const [inquiry, confirmed, cancelled] = await Promise.all([
-      Order.countDocuments({ status: ORDER_STATUS.INQUIRY }),
-      Order.countDocuments({ status: ORDER_STATUS.CONFIRMED }),
-      Order.countDocuments({ status: ORDER_STATUS.CANCELLED }),
+    const [inquiry, confirmed, delivered, completed, cancelled, reorders] =
+      await Promise.all([
+        Order.countDocuments({ status: ORDER_STATUS.INQUIRY }),
+        Order.countDocuments({ status: ORDER_STATUS.CONFIRMED }),
+        Order.countDocuments({ status: ORDER_STATUS.DELIVERED }),
+        Order.countDocuments({ status: ORDER_STATUS.COMPLETED }),
+        Order.countDocuments({ status: ORDER_STATUS.CANCELLED }),
+        countReorderCustomers(),
+      ]);
+    res.json({
+      inquiry,
+      confirmed,
+      delivered,
+      completed,
+      cancelled,
+      reorders,
+      total: inquiry + confirmed + delivered + completed + cancelled,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** Count how many distinct customers have 2+ COMPLETED orders. */
+async function countReorderCustomers() {
+  const rows = await Order.aggregate([
+    { $match: { status: ORDER_STATUS.COMPLETED } },
+    { $group: { _id: '$phoneNumber', n: { $sum: 1 } } },
+    { $match: { n: { $gte: 2 } } },
+    { $count: 'count' },
+  ]);
+  return rows[0]?.count || 0;
+}
+
+/**
+ * GET /api/orders/reorders — one row per customer with 2+ COMPLETED orders,
+ * sorted by most orders. Used by the "Re-ordered Customers" section.
+ */
+async function getReorderCustomers(req, res, next) {
+  try {
+    const rows = await Order.aggregate([
+      { $match: { status: ORDER_STATUS.COMPLETED } },
+      {
+        $group: {
+          _id: '$phoneNumber',
+          completedCount: { $sum: 1 },
+          customerName: { $last: '$customerName' },
+          lastOrderDate: { $max: '$updatedAt' },
+        },
+      },
+      { $match: { completedCount: { $gte: 2 } } },
+      { $sort: { completedCount: -1, lastOrderDate: -1 } },
     ]);
-    res.json({ inquiry, confirmed, cancelled, total: inquiry + confirmed + cancelled });
+    res.json(
+      rows.map((r) => ({
+        phoneNumber: r._id,
+        customerName: r.customerName || '',
+        completedCount: r.completedCount,
+        lastOrderDate: r.lastOrderDate,
+      }))
+    );
   } catch (err) {
     next(err);
   }
@@ -115,8 +171,40 @@ async function updateStatus(req, res, next) {
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
     order.status = status;
+
+    // On DELIVERED / COMPLETED, send the customer a friendly WhatsApp update
+    // (in their language) and record it in the chat history. A send failure
+    // must NOT block the status change, so we catch and log it.
+    if (status === ORDER_STATUS.DELIVERED || status === ORDER_STATUS.COMPLETED) {
+      try {
+        const text = await composeStatusMessage(order, status);
+        await sendWhatsAppMessage(order.phoneNumber, text);
+        order.messages.push({ sender: 'bot', messageType: 'text', message: text });
+      } catch (err) {
+        logger.error(`Status-update WhatsApp message failed (${status}):`, err?.message || err);
+      }
+    }
+
     await order.save();
     logger.info(`Order ${order._id} status manually set to ${status}`);
+    res.json(order);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/orders/:id/read — clear the unread "new activity" flag (the seller
+ * opened the order). Resets unreadCount to 0.
+ */
+async function markRead(req, res, next) {
+  try {
+    const order = await Order.findByIdAndUpdate(
+      req.params.id,
+      { $set: { unreadCount: 0 } },
+      { new: true }
+    );
+    if (!order) return res.status(404).json({ error: 'Order not found' });
     res.json(order);
   } catch (err) {
     next(err);
@@ -153,10 +241,14 @@ module.exports = {
   getAllOrders,
   getInquiries: listByStatus(ORDER_STATUS.INQUIRY),
   getConfirmed: listByStatus(ORDER_STATUS.CONFIRMED),
+  getDelivered: listByStatus(ORDER_STATUS.DELIVERED),
+  getCompleted: listByStatus(ORDER_STATUS.COMPLETED),
   getCancelled: listByStatus(ORDER_STATUS.CANCELLED),
+  getReorderCustomers,
   getOrderById,
   getStats,
   sendManualMessage,
   updateStatus,
+  markRead,
   setAutoReply,
 };

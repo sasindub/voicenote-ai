@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { api } from "@/services/api";
 import type { Order, OrderStatus } from "@/types/order";
@@ -83,13 +84,19 @@ export function OrderDetailDialog({
     }
   }, [id]);
 
-  // On open: seed with the passed order, then fetch fresh + poll every 3s.
+  // On open: seed with the passed order, clear the unread flag (the seller is
+  // now viewing it), then fetch fresh + poll every 3s. We also re-mark read on
+  // each poll so the red label stays cleared while the chat is open.
   useEffect(() => {
     if (!open || !id) return;
     setCurrent(order);
     setError(null);
+    api.markRead(id).catch(() => {});
     refresh();
-    const t = setInterval(refresh, 3000);
+    const t = setInterval(() => {
+      api.markRead(id).catch(() => {});
+      refresh();
+    }, 3000);
     return () => clearInterval(t);
   }, [open, id, order, refresh]);
 
@@ -142,9 +149,12 @@ export function OrderDetailDialog({
       <DialogContent>
         <DialogHeader>
           <div className="flex items-center justify-between pr-6">
-            <DialogTitle>
-              {current.customerName?.trim() ? current.customerName : "Unknown customer"}
-            </DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle>
+                {current.customerName?.trim() ? current.customerName : "Unknown customer"}
+              </DialogTitle>
+              {current.isReturningCustomer && <Badge variant="returning">Returning</Badge>}
+            </div>
             <StatusBadge status={current.status} />
           </div>
           <p className="text-sm text-muted-foreground">{cleanPhone(current.phoneNumber)}</p>
@@ -165,23 +175,35 @@ export function OrderDetailDialog({
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="success"
-              disabled={busy || current.status === "CONFIRMED"}
-              onClick={() => changeStatus("CONFIRMED")}
-            >
-              Confirm
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              disabled={busy || current.status === "CANCELLED"}
-              onClick={() => changeStatus("CANCELLED")}
-            >
-              Cancel
-            </Button>
+          <div className="flex flex-wrap gap-2">
+            {/* Status-aware progression buttons */}
+            {current.status === "INQUIRY" && (
+              <Button size="sm" variant="success" disabled={busy} onClick={() => changeStatus("CONFIRMED")}>
+                Confirm
+              </Button>
+            )}
+            {current.status === "CONFIRMED" && (
+              <Button size="sm" disabled={busy} onClick={() => changeStatus("DELIVERED")}>
+                Mark Delivered
+              </Button>
+            )}
+            {current.status === "DELIVERED" && (
+              <Button size="sm" variant="success" disabled={busy} onClick={() => changeStatus("COMPLETED")}>
+                Mark Completed
+              </Button>
+            )}
+            {(current.status === "INQUIRY" ||
+              current.status === "CONFIRMED" ||
+              current.status === "DELIVERED") && (
+              <Button size="sm" variant="destructive" disabled={busy} onClick={() => changeStatus("CANCELLED")}>
+                Cancel
+              </Button>
+            )}
+            {(current.status === "COMPLETED" || current.status === "CANCELLED") && (
+              <span className="text-xs text-muted-foreground self-center">
+                This order is closed.
+              </span>
+            )}
           </div>
         </div>
 

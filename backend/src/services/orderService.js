@@ -10,50 +10,71 @@
 // authoritative status decision so the rules are predictable.
 // ────────────────────────────────────────────────────────────────
 
-const { Order, ORDER_STATUS } = require('../models/Order');
+const { Order, ORDER_STATUS, CLOSED_STATUSES } = require('../models/Order');
 const { extractOrder } = require('../ai/orderExtractor');
 const logger = require('../utils/logger');
 
 // Fields the AI can fill on the order document.
 const FIELD_KEYS = ['product', 'size', 'color', 'quantity', 'customerName', 'address', 'email'];
 
+// Fields we carry over from a returning customer's last completed order.
+const REUSABLE_FIELDS = ['customerName', 'address', 'email'];
+
 /**
- * Find the order this incoming message belongs to, or create a new inquiry.
+ * Create a brand-new INQUIRY order for a number. If the customer has COMPLETED
+ * an order before, mark them as returning and pre-fill their known contact
+ * details (so re-orders are fast and the bot can say "same address as before?").
  *
- * Rule:
- *   - If the customer's most recent order is still an INQUIRY → keep using it.
- *   - Otherwise (their last order was CONFIRMED or CANCELLED, or they have
- *     none) → start a NEW inquiry. EXCEPTION: if their last order is CONFIRMED
- *     and they're trying to CANCEL, we reuse that confirmed order so it can be
- *     cancelled (handled by passing it through when intent is CANCEL).
+ * @param {string} phoneNumber
+ * @returns {Promise<import('mongoose').Document>}
+ */
+async function createNewOrder(phoneNumber) {
+  // Most recent order (any status) — used to inherit the auto-reply setting.
+  const latestAny = await Order.findOne({ phoneNumber }).sort({ createdAt: -1 });
+  const inheritedAutoReply = latestAny ? latestAny.autoReplyEnabled !== false : true;
+
+  // Most recent COMPLETED order — defines "returning customer" + prefill source.
+  const lastCompleted = await Order.findOne({
+    phoneNumber,
+    status: ORDER_STATUS.COMPLETED,
+  }).sort({ createdAt: -1 });
+
+  const data = {
+    phoneNumber,
+    status: ORDER_STATUS.INQUIRY,
+    autoReplyEnabled: inheritedAutoReply,
+    isReturningCustomer: Boolean(lastCompleted),
+  };
+
+  // Pre-fill contact details from their last completed order.
+  if (lastCompleted) {
+    for (const key of REUSABLE_FIELDS) {
+      if (lastCompleted[key]) data[key] = lastCompleted[key];
+    }
+  }
+
+  return Order.create(data);
+}
+
+/**
+ * Find the OPEN order this message belongs to, or create a new one.
+ *
+ * Rule: while the customer's latest order is still open (INQUIRY / CONFIRMED /
+ * DELIVERED) we keep adding to it. Only once it's CLOSED (COMPLETED or
+ * CANCELLED) does the next message begin a fresh order.
  *
  * @param {string} phoneNumber
  * @returns {Promise<import('mongoose').Document>}
  */
 async function findOrCreateActiveOrder(phoneNumber) {
-  // Most recent order for this number.
   const latest = await Order.findOne({ phoneNumber }).sort({ createdAt: -1 });
 
-  if (latest && latest.status === ORDER_STATUS.INQUIRY) {
-    return latest; // continue the in-progress inquiry
+  if (latest && !CLOSED_STATUSES.includes(latest.status)) {
+    return latest; // still open → continue the same conversation
   }
 
-  // If the latest order was just CONFIRMED, keep a handle to it so a quick
-  // "cancel" right after confirming can still cancel THAT order.
-  if (latest && latest.status === ORDER_STATUS.CONFIRMED) {
-    // We attach it as a candidate; processMessage decides based on intent.
-    latest._isRecentConfirmed = true;
-    return latest;
-  }
-
-  // No usable order → create a fresh inquiry. New orders inherit this
-  // number's current auto-reply setting (so manual mode persists across orders).
-  const inheritedAutoReply = latest ? latest.autoReplyEnabled !== false : true;
-  return Order.create({
-    phoneNumber,
-    status: ORDER_STATUS.INQUIRY,
-    autoReplyEnabled: inheritedAutoReply,
-  });
+  // No order yet, or the last one is closed → start a new one.
+  return createNewOrder(phoneNumber);
 }
 
 /**
@@ -67,80 +88,71 @@ async function findOrCreateActiveOrder(phoneNumber) {
  * @returns {Promise<{reply: string, order: object}>}
  */
 async function processIncomingMessage({ phoneNumber, text, messageType }) {
-  let order = await findOrCreateActiveOrder(phoneNumber);
+  const order = await findOrCreateActiveOrder(phoneNumber);
 
   // Is auto-reply on for this number? (Default true.)
   const autoReply = order.autoReplyEnabled !== false;
 
-  // If the most recent order was CONFIRMED and the customer is NOT cancelling,
-  // we want a brand-new inquiry instead of mutating the confirmed one. We peek
-  // at intent first via the AI, so log + AI happen before we finalize which
-  // order to use. To keep it simple we run the AI against the chosen order's
-  // current fields; if it turns out they're starting a new order after a
-  // confirm, we create a fresh inquiry and re-run light handling.
-
-  const wasRecentConfirmed = order._isRecentConfirmed === true;
-
-  // Record the inbound message on whatever order we're currently considering.
+  // Record the inbound message + raise the "unread" flag for the seller.
   order.messages.push({ sender: 'customer', messageType: messageType || 'text', message: text });
+  order.unreadCount = (order.unreadCount || 0) + 1;
 
   // Build the field snapshot + history for the AI.
   const currentFields = pickFields(order);
   const history = order.messages.map((m) => ({ sender: m.sender, message: m.message }));
 
-  // Ask the AI to extract + decide intent + write the reply.
-  const ai = await extractOrder({ currentFields, history, latestMessage: text });
-  logger.info(`AI intent=${ai.intent} missing=[${ai.missingFields.join(',')}]`);
+  // Ask the AI to extract + decide intent + write a natural reply. We pass the
+  // current status + returning-customer flag so it can behave appropriately
+  // (greet returning customers warmly, answer follow-up questions after an
+  // order is confirmed, etc.).
+  const ai = await extractOrder({
+    currentFields,
+    history,
+    latestMessage: text,
+    status: order.status,
+    isReturningCustomer: order.isReturningCustomer === true,
+  });
+  logger.info(`AI intent=${ai.intent} missing=[${ai.missingFields.join(',')}] status=${order.status}`);
 
-  // If the last order was already CONFIRMED and the customer is clearly placing
-  // a NEW order (not cancelling), start a fresh inquiry so we don't overwrite
-  // the confirmed one.
-  if (autoReply && wasRecentConfirmed && ai.intent !== 'CANCEL') {
-    logger.info('Most recent order was CONFIRMED and customer is ordering again → new inquiry.');
-    order = await Order.create({ phoneNumber, status: ORDER_STATUS.INQUIRY, autoReplyEnabled: true });
-    order.messages.push({ sender: 'customer', messageType: messageType || 'text', message: text });
-  }
-
-  // Merge extracted fields into the order (only overwrite with non-empty values
-  // so we never wipe a known value with a blank). This happens in BOTH modes so
-  // the dashboard always reflects the latest details ("silent assist").
+  // Merge extracted fields (only non-empty so we never wipe a known value).
+  // Happens in BOTH modes so the dashboard always reflects the latest details.
   for (const key of FIELD_KEYS) {
     const val = ai.fields[key];
     if (val && val.trim() !== '') order[key] = val.trim();
   }
-
-  // Always refresh the dashboard summary.
   if (ai.summary) order.summary = ai.summary;
 
   // ── MANUAL MODE (auto-reply OFF): silent assist ───────────────────
-  // We've already extracted fields + summary above. Do NOT change status and
-  // do NOT send a reply — the seller handles the conversation manually.
+  // Fields/summary already updated. Send nothing, change no status.
   if (!autoReply) {
     await order.save();
     logger.info('Auto-reply OFF → silent assist (no reply sent, status unchanged).');
     return { reply: null, autoReplyEnabled: false, order: order.toObject() };
   }
 
-  // ── AUTO MODE: authoritative status decision + reply ──────────────
-  const stillMissing = ai.missingFields; // recomputed in code by the extractor
+  // ── AUTO MODE: status transition (never downgrade) + reply ────────
+  const stillMissing = ai.missingFields;
   let reply = ai.reply;
 
   if (ai.intent === 'CANCEL') {
+    // Customers can cancel while INQUIRY/CONFIRMED/DELIVERED.
     order.status = ORDER_STATUS.CANCELLED;
-  } else if (ai.intent === 'CONFIRM' && stillMissing.length === 0) {
+  } else if (
+    ai.intent === 'CONFIRM' &&
+    stillMissing.length === 0 &&
+    order.status === ORDER_STATUS.INQUIRY
+  ) {
+    // Only an open inquiry gets upgraded to CONFIRMED. Already-confirmed or
+    // delivered orders keep their status while the customer keeps chatting.
     order.status = ORDER_STATUS.CONFIRMED;
-  } else {
-    // Stay an inquiry while details are incomplete or not yet confirmed.
-    order.status = ORDER_STATUS.INQUIRY;
   }
+  // Otherwise: leave status as-is (follow-up questions don't change it).
 
-  // Safety net: if the AI somehow returned an empty reply, generate a minimal
-  // fallback so the customer always gets a response.
+  // Safety net if the AI returned an empty reply.
   if (!reply || reply.trim() === '') {
     reply = fallbackReply(order.status, stillMissing);
   }
 
-  // Log the bot's outgoing reply, then persist everything in one save.
   order.messages.push({ sender: 'bot', messageType: 'text', message: reply });
   await order.save();
 

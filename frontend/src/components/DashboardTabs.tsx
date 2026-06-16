@@ -13,14 +13,17 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { href: "/dashboard/inquiries", label: "Inquiries" },
   { href: "/dashboard/confirmed", label: "Confirmed" },
+  { href: "/dashboard/delivered", label: "Delivered" },
+  { href: "/dashboard/completed", label: "Completed" },
   { href: "/dashboard/cancelled", label: "Cancelled" },
+  { href: "/dashboard/reorders", label: "Re-orders" },
 ];
 
 export function DashboardTabs() {
   const pathname = usePathname();
 
   return (
-    <div className="inline-flex rounded-lg border bg-card p-1">
+    <div className="inline-flex flex-wrap gap-1 rounded-lg border bg-card p-1">
       {TABS.map((t) => {
         const active = pathname === t.href;
         return (

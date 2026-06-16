@@ -4,7 +4,7 @@
 // NEXT_PUBLIC_API_URL so it works in both local dev and production.
 // ────────────────────────────────────────────────────────────────
 
-import type { Order, Stats, OrderStatus } from "@/types/order";
+import type { Order, Stats, OrderStatus, ReorderCustomer } from "@/types/order";
 
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
@@ -35,6 +35,8 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 const STATUS_PATH: Record<OrderStatus, string> = {
   INQUIRY: "/api/orders/inquiries",
   CONFIRMED: "/api/orders/confirmed",
+  DELIVERED: "/api/orders/delivered",
+  COMPLETED: "/api/orders/completed",
   CANCELLED: "/api/orders/cancelled",
 };
 
@@ -44,6 +46,7 @@ export const api = {
   getAllOrders: () => getJson<Order[]>("/api/orders"),
   getOrder: (id: string) => getJson<Order>(`/api/orders/${id}`),
   getStats: () => getJson<Stats>("/api/orders/stats"),
+  getReorders: () => getJson<ReorderCustomer[]>("/api/orders/reorders"),
 
   // Manual seller controls
   sendMessage: (id: string, text: string) =>
@@ -52,4 +55,5 @@ export const api = {
     postJson<Order>(`/api/orders/${id}/status`, { status }),
   setAutoReply: (id: string, enabled: boolean) =>
     postJson<Order>(`/api/orders/${id}/auto-reply`, { enabled }),
+  markRead: (id: string) => postJson<Order>(`/api/orders/${id}/read`, {}),
 };

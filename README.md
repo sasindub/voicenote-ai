@@ -55,14 +55,29 @@ project/
 
 ---
 
-## Order lifecycle (only 3 statuses)
+## Order lifecycle
 
-`INQUIRY` → (customer replies **CONFIRM**) → `CONFIRMED`
-`INQUIRY`/`CONFIRMED` → (customer replies **CANCEL**) → `CANCELLED`
+`INQUIRY` → **CONFIRM** → `CONFIRMED` → *(seller)* `DELIVERED` → *(seller)* `COMPLETED`
+Any open order can be **CANCELLED**. `COMPLETED` and `CANCELLED` are **closed** —
+the customer's next message starts a brand-new order.
 
-The AI extracts: **product, size, color, quantity, customer name, address**.
-While any required field is missing, the bot keeps asking. When complete, it
-asks the customer to reply **CONFIRM** or **CANCEL**.
+- The AI extracts **product, size, color, quantity, name, address**, asks for
+  whatever's missing, then asks the customer to reply **CONFIRM** / **CANCEL**.
+- **Delivered** and **Completed** are manual seller buttons; each sends the
+  customer a friendly WhatsApp update in their language.
+- **Returning customers** (who completed an order before) are greeted warmly and
+  their name/address are pre-filled; they're tagged **Returning** in the UI.
+- A red **unread dot** marks orders with new customer messages; it clears when
+  you open the order.
+- **Re-ordered Customers** section lists anyone with 2+ completed orders, ranked.
+
+### Dashboard sections
+Inquiries · Confirmed · Delivered · Completed · Cancelled · Re-orders
+
+### Seller controls (in the order detail)
+Auto-reply switch (per number; bot goes silent but still updates details) ·
+manual message box · per-field copy buttons · status buttons
+(Confirm / Mark Delivered / Mark Completed / Cancel).
 
 ---
 

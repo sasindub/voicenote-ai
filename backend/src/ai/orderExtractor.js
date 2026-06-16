@@ -26,13 +26,24 @@ const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 // The fields a complete order needs (phone comes from WhatsApp automatically).
 const REQUIRED_FIELDS = ['product', 'size', 'color', 'quantity', 'customerName', 'address'];
 
-const SYSTEM_PROMPT = `You are a friendly WhatsApp ordering assistant for a shop.
-Customers message you (in English, Sinhala, or Tamil — possibly mixed) to place orders.
+const SYSTEM_PROMPT = `You are a warm, natural human-sounding shop assistant chatting with customers on WhatsApp
+(in English, Sinhala, or Tamil — possibly mixed) to take and manage their orders.
+NEVER say you are a bot, AI, or automated. Just chat like a friendly shop staff member.
 
 You will be given:
 - The order details we ALREADY have (some fields may be empty).
+- The current order STATUS and whether this is a RETURNING customer.
 - The recent conversation.
 - The customer's latest message.
+
+Behaviour by situation:
+- RETURNING customer starting a new order: greet them warmly like you remember them
+  ("Welcome back! 😊"), and if we already have their name/address from before, confirm
+  it instead of asking again (e.g. "Shall I send it to the same address as last time?").
+- Order still being built: collect any missing required details (see below).
+- Order already CONFIRMED or DELIVERED: the customer may just be asking follow-up
+  questions (delivery time, changes, thanks). Answer naturally and helpfully; do NOT
+  ask them to confirm again and do NOT restart the order.
 
 Do ALL of the following and return ONE JSON object (no markdown fences):
 
@@ -116,14 +127,25 @@ function safeParseJson(raw) {
  *   summary: string
  * }>}
  */
-async function extractOrder({ currentFields, history, latestMessage }) {
+async function extractOrder({
+  currentFields,
+  history,
+  latestMessage,
+  status = 'INQUIRY',
+  isReturningCustomer = false,
+}) {
   // Build a compact transcript of the recent conversation for context.
   const historyText = (history || [])
     .slice(-12) // last ~12 messages is plenty of context
-    .map((m) => `${m.sender === 'customer' ? 'Customer' : 'Bot'}: ${m.message}`)
+    .map((m) => {
+      const who = m.sender === 'customer' ? 'Customer' : m.sender === 'agent' ? 'Shop' : 'You';
+      return `${who}: ${m.message}`;
+    })
     .join('\n');
 
   const userContent =
+    `CURRENT ORDER STATUS: ${status}\n` +
+    `RETURNING CUSTOMER: ${isReturningCustomer ? 'yes (they have ordered & completed before)' : 'no'}\n\n` +
     `KNOWN ORDER DETAILS (JSON):\n${JSON.stringify(currentFields || {}, null, 2)}\n\n` +
     `RECENT CONVERSATION:\n${historyText || '(none yet)'}\n\n` +
     `CUSTOMER'S LATEST MESSAGE:\n"""${latestMessage}"""`;

@@ -1,6 +1,11 @@
 // Mirrors the backend Order / Message shape (see backend/src/models/Order.js).
 
-export type OrderStatus = "INQUIRY" | "CONFIRMED" | "CANCELLED";
+export type OrderStatus =
+  | "INQUIRY"
+  | "CONFIRMED"
+  | "DELIVERED"
+  | "COMPLETED"
+  | "CANCELLED";
 
 export interface Message {
   sender: "customer" | "bot" | "agent";
@@ -22,6 +27,8 @@ export interface Order {
   status: OrderStatus;
   summary: string;
   autoReplyEnabled: boolean;
+  unreadCount: number;
+  isReturningCustomer: boolean;
   messages: Message[];
   createdAt: string;
   updatedAt: string;
@@ -30,6 +37,16 @@ export interface Order {
 export interface Stats {
   inquiry: number;
   confirmed: number;
+  delivered: number;
+  completed: number;
   cancelled: number;
+  reorders: number;
   total: number;
+}
+
+export interface ReorderCustomer {
+  phoneNumber: string;
+  customerName: string;
+  completedCount: number;
+  lastOrderDate: string;
 }
