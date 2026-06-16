@@ -60,9 +60,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22.11.0
-      # Auto-filled with the backend service's hostname at build time.
+      # The PUBLIC backend URL (browser-facing). We hardcode it because
+      # `fromService host` returns Render's INTERNAL hostname, which the
+      # browser can't resolve. If your backend URL differs, update it here.
       - key: NEXT_PUBLIC_API_URL
-        fromService:
-          type: web
-          name: whatsapp-order-backend
-          property: host
+        value: https://whatsapp-order-backend-j80h.onrender.com
