@@ -1,0 +1,32 @@
+# Render Blueprint for the backend (optional convenience).
+# In Render: New → Blueprint → point at this repo. Set the env vars in the
+# dashboard (they're marked sync:false so they aren't stored in git).
+services:
+  - type: web
+    name: whatsapp-order-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 22.11.0
+      - key: MONGODB_URI
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_ACCOUNT_SID_AC
+        sync: false
+      - key: TWILIO_WHATSAPP_FROM
+        value: whatsapp:+14155238886
+      - key: VALIDATE_TWILIO_SIGNATURE
+        value: "true"
+      - key: CORS_ORIGIN
+        value: "*"

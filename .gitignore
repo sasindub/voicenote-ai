@@ -1,8 +1,23 @@
-# Never commit secrets or local data
+# secrets / env (all levels)
 .env
+.env.*
+!.env.example
+*.local
+
+# dependencies
 node_modules/
+
+# data / logs / build
 data/
 *.sqlite
 *.sqlite3
 *.log
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+
+# os / archives
 .DS_Store
+Archive.zip

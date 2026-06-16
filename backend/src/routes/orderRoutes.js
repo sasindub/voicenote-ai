@@ -1,0 +1,22 @@
+// ────────────────────────────────────────────────────────────────
+// src/routes/orderRoutes.js
+// Dashboard API routes (mounted under /api/orders in server.js).
+//
+// ORDER MATTERS: the specific paths (/inquiries, /confirmed, /cancelled,
+// /stats) must be declared BEFORE the catch-all "/:id", otherwise Express
+// would treat "inquiries" as an :id.
+// ────────────────────────────────────────────────────────────────
+
+const express = require('express');
+const ctrl = require('../controllers/orderController');
+
+const router = express.Router();
+
+router.get('/', ctrl.getAllOrders);
+router.get('/stats', ctrl.getStats);
+router.get('/inquiries', ctrl.getInquiries);
+router.get('/confirmed', ctrl.getConfirmed);
+router.get('/cancelled', ctrl.getCancelled);
+router.get('/:id', ctrl.getOrderById);
+
+module.exports = router;
