@@ -15,7 +15,7 @@ export default function DashboardLayout({
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <header>
-        <h1 className="text-2xl font-bold">📦 WhatsApp Orders</h1>
+        <h1 className="text-2xl font-bold">WhatsApp Orders</h1>
         <p className="text-sm text-muted-foreground">
           Orders placed by customers over WhatsApp (text &amp; voice).
         </p>
